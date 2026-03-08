@@ -1,511 +1,163 @@
-import json
-import os
-import re
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
-
-import pandas as pd
 import streamlit as st
 import google.generativeai as genai
-
-# -----------------------------
-# Sayfa Ayari
-# -----------------------------
-st.set_page_config(
-    page_title="Kredi Karti ve Taksit Takip Dashboard",
-    page_icon="💳",
-    layout="wide",
-)
-
-
-# -----------------------------
-# Liquid Glass CSS
-# -----------------------------
-st.markdown(
-    """
-    <style>
-    :root {
-        --glass-bg: rgba(255, 255, 255, 0.15);
-        --glass-border: rgba(255, 255, 255, 0.30);
-        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        --text-dark: #0e1330;
-        --text-soft: #f7f8ff;
-        --accent-1: #7f5af0;
-        --accent-2: #2cb7ff;
-        --accent-3: #ff7ac6;
-    }
-
-    .stApp {
-        background: linear-gradient(120deg, #6a5cff 0%, #39b8ff 45%, #ff8ccf 100%);
-        min-height: 100vh;
-        color: var(--text-soft);
-        overflow-x: hidden;
-        position: relative;
-    }
-
-    .stApp::before {
-        content: "";
-        position: fixed;
-        top: -20%;
-        left: -10%;
-        width: 140%;
-        height: 140%;
-        background:
-            radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.30), transparent 35%),
-            radial-gradient(circle at 80% 25%, rgba(255, 255, 255, 0.25), transparent 38%),
-            radial-gradient(circle at 60% 80%, rgba(255, 255, 255, 0.20), transparent 30%);
-        filter: blur(30px);
-        animation: drift 18s ease-in-out infinite alternate;
-        z-index: 0;
-        pointer-events: none;
-    }
-
-    @keyframes drift {
-        0% { transform: translate3d(-2%, -1%, 0) scale(1); }
-        100% { transform: translate3d(2%, 2%, 0) scale(1.08); }
-    }
-
-    .main .block-container {
-        position: relative;
-        z-index: 1;
-        padding-top: 1.8rem;
-        padding-bottom: 2rem;
-    }
-
-    .glass-panel {
-        background: var(--glass-bg);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 18px;
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--glass-shadow);
-        padding: 1rem 1.2rem;
-    }
-
-    .hero-title {
-        font-size: clamp(1.4rem, 2.5vw, 2.4rem);
-        font-weight: 800;
-        color: #ffffff;
-        margin: 0;
-        letter-spacing: 0.2px;
-    }
-
-    .hero-sub {
-        margin-top: 0.35rem;
-        color: rgba(255, 255, 255, 0.92);
-        font-size: 0.98rem;
-    }
-
-    /* Metric glass */
-    div[data-testid="stMetric"] {
-        background: var(--glass-bg);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 15px;
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--glass-shadow);
-        padding: 0.95rem 1rem;
-    }
-
-    div[data-testid="stMetricLabel"] {
-        color: rgba(255, 255, 255, 0.88) !important;
-        font-weight: 600;
-    }
-
-    div[data-testid="stMetricValue"] {
-        color: #ffffff !important;
-        font-weight: 800;
-    }
-
-    /* Tabs */
-    button[data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.14) !important;
-        border: 1px solid rgba(255, 255, 255, 0.22) !important;
-        border-radius: 10px !important;
-        margin-right: 6px !important;
-        color: #ffffff !important;
-    }
-
-    button[data-baseweb="tab"][aria-selected="true"] {
-        background: rgba(255, 255, 255, 0.28) !important;
-        border-color: rgba(255, 255, 255, 0.48) !important;
-    }
-
-    /* Dataframe glass */
-    div[data-testid="stDataFrame"] {
-        background: var(--glass-bg);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 15px;
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--glass-shadow);
-        padding: 0.5rem;
-    }
-
-    .stDataFrame table {
-        border-collapse: separate !important;
-        border-spacing: 0 !important;
-        border-radius: 12px;
-        overflow: hidden;
-    }
-
-    .stDataFrame thead tr th {
-        background: rgba(255, 255, 255, 0.20) !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.35) !important;
-    }
-
-    .stDataFrame tbody tr td {
-        color: rgba(255, 255, 255, 0.95) !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.16) !important;
-    }
-
-    .stDataFrame tbody tr:hover td {
-        background: rgba(255, 255, 255, 0.15) !important;
-    }
-
-    /* Inputs */
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="textarea"] > div,
-    div[data-baseweb="select"] > div {
-        background: rgba(255, 255, 255, 0.18) !important;
-        border: 1px solid rgba(255, 255, 255, 0.35) !important;
-        color: #fff !important;
-        border-radius: 12px !important;
-    }
-
-    .stButton > button {
-        background: linear-gradient(90deg, var(--accent-1), var(--accent-2), var(--accent-3));
-        color: #ffffff;
-        border: none;
-        border-radius: 12px;
-        font-weight: 700;
-        box-shadow: 0 8px 22px rgba(20, 21, 90, 0.35);
-        transition: transform 0.2s ease, filter 0.2s ease;
-    }
-
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        filter: brightness(1.05);
-    }
-
-    .stAlert {
-        border-radius: 12px;
-    }
-
-    footer {visibility: hidden;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# -----------------------------
-# Yardimci Yapilar
-# -----------------------------
-PROMPT = (
-    "Ekteki kredi karti ekstresini analiz et. Sadece su JSON formatinda veri dondur: "
-    "{'kart_sahibi': 'Isim Soyisim', 'banka': 'Banka Adi', 'donem_borcu': 0.0, "
-    "'limit': 0.0, 'taksitler': [{'aciklama': 'Harcama Adi', 'taksit_no': '2/6', 'tutar': 0.0}]}"
-)
-
-
-@dataclass
-class ParseResult:
-    file_name: str
-    data: Dict[str, Any] | None
-    error: str | None = None
-
-
-def parse_float(value: Any) -> float:
-    if value is None:
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip()
-    text = text.replace("TL", "").replace("₺", "").replace(" ", "")
-    # 1.234,56 -> 1234.56 ; 1,234.56 -> 1234.56
-    if "," in text and "." in text:
-        if text.rfind(",") > text.rfind("."):
-            text = text.replace(".", "").replace(",", ".")
-        else:
-            text = text.replace(",", "")
-    else:
-        text = text.replace(",", ".")
-
-    match = re.search(r"-?\d+(?:\.\d+)?", text)
-    return float(match.group()) if match else 0.0
-
-
-def parse_taksit_no(taksit_no: Any) -> Tuple[int, int, int]:
-    """2/6 -> (mevcut=2, toplam=6, kalan=4)"""
-    if taksit_no is None:
-        return 0, 0, 0
-
-    text = str(taksit_no).strip()
-    m = re.search(r"(\d+)\s*/\s*(\d+)", text)
-    if not m:
-        return 0, 0, 0
-
-    mevcut = int(m.group(1))
-    toplam = int(m.group(2))
-    kalan = max(toplam - mevcut, 0)
-    return mevcut, toplam, kalan
-
-
-def _strip_json_fence(raw_text: str) -> str:
-    cleaned = raw_text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
-        cleaned = re.sub(r"```$", "", cleaned).strip()
-    return cleaned
-
-
-def normalize_statement_json(payload: Dict[str, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {
-        "kart_sahibi": str(payload.get("kart_sahibi") or "Bilinmiyor").strip(),
-        "banka": str(payload.get("banka") or "Bilinmiyor").strip(),
-        "donem_borcu": parse_float(payload.get("donem_borcu")),
-        "limit": parse_float(payload.get("limit")),
-        "taksitler": [],
-    }
-
-    taksitler = payload.get("taksitler")
-    if isinstance(taksitler, list):
-        for row in taksitler:
-            if not isinstance(row, dict):
-                continue
-            out["taksitler"].append(
-                {
-                    "aciklama": str(row.get("aciklama") or "-").strip(),
-                    "taksit_no": str(row.get("taksit_no") or "0/0").strip(),
-                    "tutar": parse_float(row.get("tutar")),
-                }
-            )
-
-    return out
-
-
-def call_gemini_for_pdf(
-    api_key: str,
-    pdf_bytes: bytes,
-    model_name: str = "gemini-1.5-flash",
-) -> Dict[str, Any]:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
-
-    response = model.generate_content(
-        contents=[
-            PROMPT,
-            {"mime_type": "application/pdf", "data": pdf_bytes},
-        ],
-        generation_config={"response_mime_type": "application/json"},
-    )
-
-    raw_text = getattr(response, "text", "") or ""
-    cleaned = _strip_json_fence(raw_text)
-
-    try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Model JSON dondurmedi veya JSON bozuk: {exc}") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError("Modelden gelen JSON obje formatinda degil.")
-
-    return normalize_statement_json(payload)
-
-
-def process_uploaded_files(api_key: str, files: List[Any], model_name: str) -> List[ParseResult]:
-    results: List[ParseResult] = []
-    progress = st.progress(0, text="PDF analizleri baslatiliyor...")
-
-    for idx, file in enumerate(files, start=1):
-        try:
-            data = call_gemini_for_pdf(
-                api_key=api_key,
-                pdf_bytes=file.getvalue(),
-                model_name=model_name,
-            )
-            results.append(ParseResult(file_name=file.name, data=data, error=None))
-        except Exception as exc:
-            results.append(ParseResult(file_name=file.name, data=None, error=str(exc)))
-
-        progress.progress(
-            int((idx / len(files)) * 100),
-            text=f"{idx}/{len(files)} dosya analiz edildi",
-        )
-
-    return results
-
-
-def build_dataframes(results: List[ParseResult]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    card_rows: List[Dict[str, Any]] = []
-    installment_rows: List[Dict[str, Any]] = []
-    error_rows: List[Dict[str, Any]] = []
-
-    for item in results:
-        if item.error:
-            error_rows.append({"Dosya": item.file_name, "Hata": item.error})
-            continue
-
-        data = item.data or {}
-        owner = data.get("kart_sahibi", "Bilinmiyor")
-        bank = data.get("banka", "Bilinmiyor")
-        debt = parse_float(data.get("donem_borcu"))
-        limit = parse_float(data.get("limit"))
-
-        card_rows.append(
-            {
-                "Dosya": item.file_name,
-                "kart_sahibi": owner,
-                "banka": bank,
-                "donem_borcu": debt,
-                "limit": limit,
-                "kullanilabilir_limit": max(limit - debt, 0.0),
-            }
-        )
-
-        for taksit in data.get("taksitler", []):
-            mevcut, toplam, kalan = parse_taksit_no(taksit.get("taksit_no"))
-            aylik_tutar = parse_float(taksit.get("tutar"))
-
-            installment_rows.append(
-                {
-                    "Dosya": item.file_name,
-                    "kart_sahibi": owner,
-                    "banka": bank,
-                    "aciklama": taksit.get("aciklama", "-"),
-                    "taksit_no": taksit.get("taksit_no", "0/0"),
-                    "Mevcut Taksit": mevcut,
-                    "Toplam Taksit": toplam,
-                    "Kalan Taksit Sayisi": kalan,
-                    "Aylik Tutar": aylik_tutar,
-                    "Kalan Toplam Borc": kalan * aylik_tutar,
-                }
-            )
-
-    cards_df = pd.DataFrame(card_rows)
-    installments_df = pd.DataFrame(installment_rows)
-    errors_df = pd.DataFrame(error_rows)
-    return cards_df, installments_df, errors_df
-
-
-def format_currency_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
-    out = df.copy()
-    for col in columns:
-        if col in out.columns:
-            out[col] = out[col].map(lambda x: f"₺{float(x):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    return out
-
-
-# -----------------------------
-# Baslik
-# -----------------------------
-st.markdown(
-    """
-    <div class="glass-panel">
-      <h1 class="hero-title">Kredi Karti ve Taksit Takip Dashboard</h1>
-      <p class="hero-sub">PDF ekstrelere gore otomatik borc, limit ve kalan taksit analizi (Gemini 1.5 Flash)</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.write("")
-
-
-# -----------------------------
-# Kenar Menu
-# -----------------------------
+import pandas as pd
+import json
+
+# ==========================================
+# 1. SAYFA VE TASARIM AYARLARI (LIQUID GLASS)
+# ==========================================
+st.set_page_config(page_title="Finansal Dashboard", layout="wide", page_icon="💳")
+
+# Glassmorphism (Cam efekti) ve Arka Plan CSS'i
+page_bg_css = """
+<style>
+/* Arka plan animasyonlu gradient */
+.stApp {
+    background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+    background-size: 400% 400%;
+    animation: gradient 15s ease infinite;
+}
+
+@keyframes gradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Metrik kutuları için Glassmorphism efekti */
+div[data-testid="metric-container"] {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 15px;
+    padding: 20px;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.2);
+    color: white !important;
+}
+
+/* Tablo arka planlarını şeffaflaştırma denemesi */
+[data-testid="stDataFrame"] {
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 10px;
+    padding: 10px;
+}
+
+h1, h2, h3, p {
+    color: white !important;
+    text-shadow: 1px 1px 4px rgba(0,0,0,0.3);
+}
+</style>
+"""
+st.markdown(page_bg_css, unsafe_allow_html=True)
+
+st.title("💳 Liquid Kredi Kartı & Taksit Paneli")
+
+# ==========================================
+# 2. YAN PANEL (API KEY VE DOSYA YÜKLEME)
+# ==========================================
 with st.sidebar:
-    st.markdown("### Gemini Ayarlari")
-    api_key = st.text_input(
-        "Google API Key",
-        value=os.getenv("GOOGLE_API_KEY", ""),
-        type="password",
-        placeholder="AIza...",
-        help="Gemini API key girin. Kodda saklamayin.",
-    )
-    model_name = st.text_input("Model", value="gemini-1.5-flash")
+    st.header("⚙️ Ayarlar")
+    # Kodun patlamaması için API Key'i arayüzden alıyoruz (Netlify'da kolaylık sağlar)
+    api_key = st.text_input("Gemini API Key'inizi Girin", type="password")
+    st.divider()
+    uploaded_files = st.file_uploader("Ekstreleri Yükle (PDF)", type="pdf", accept_multiple_files=True)
 
-    st.markdown("---")
-    st.caption("PDF dosyalarinizi yukleyip tek tikla analiz edebilirsiniz.")
+# ==========================================
+# 3. YARDIMCI FONKSİYONLAR VE PROMPT
+# ==========================================
+def parse_installment(taksit_str):
+    try:
+        current, total = map(int, str(taksit_str).split('/'))
+        return total - current
+    except:
+        return 0
 
+PROMPT = """
+Ekteki kredi kartı ekstresini analiz et. Sadece şu JSON formatında veri döndür. Asla başka bir metin yazma:
+{
+  "kart_sahibi": "İsim Soyisim",
+  "banka": "Banka Adı",
+  "donem_borcu": 0.0,
+  "limit": 0.0,
+  "taksitler": [
+    {"aciklama": "Harcama Adı", "taksit_no": "2/6", "tutar": 0.0}
+  ]
+}
+"""
 
-# -----------------------------
-# Dosya Yukleme
-# -----------------------------
-uploaded_files = st.file_uploader(
-    "Kredi karti ekstre PDF dosyalarini secin",
-    type=["pdf"],
-    accept_multiple_files=True,
-)
-
-analyze_clicked = st.button("PDF'leri Analiz Et", use_container_width=True)
-
-
-# -----------------------------
-# Analiz Akisi
-# -----------------------------
-if analyze_clicked:
-    if not api_key.strip():
-        st.error("API key gerekli. Sidebar'dan Google API key girin.")
-        st.stop()
-
-    if not uploaded_files:
-        st.warning("En az bir PDF yuklemelisiniz.")
-        st.stop()
-
-    with st.spinner("Gemini ile PDF'ler analiz ediliyor..."):
-        parse_results = process_uploaded_files(api_key, uploaded_files, model_name)
-
-    cards_df, installments_df, errors_df = build_dataframes(parse_results)
-
-    if cards_df.empty and not errors_df.empty:
-        st.error("Dosyalar analiz edilirken hata olustu. Asagidaki hata tablosunu kontrol edin.")
-
-    total_debt = cards_df["donem_borcu"].sum() if "donem_borcu" in cards_df else 0.0
-    total_limit = cards_df["limit"].sum() if "limit" in cards_df else 0.0
-    total_available = max(total_limit - total_debt, 0.0)
-
-    col1, col2 = st.columns(2)
-    col1.metric("Genel Toplam Borc", f"₺{total_debt:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    col2.metric("Toplam Kullanilabilir Limit", f"₺{total_available:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
-    st.write("")
-
-    if not cards_df.empty:
-        owners = sorted(cards_df["kart_sahibi"].dropna().unique().tolist())
-        tabs = st.tabs([f"👤 {owner}" for owner in owners])
-
-        for tab, owner in zip(tabs, owners):
-            with tab:
-                owner_cards = cards_df[cards_df["kart_sahibi"] == owner].copy()
-                owner_inst = installments_df[installments_df["kart_sahibi"] == owner].copy() if not installments_df.empty else pd.DataFrame()
-
-                st.markdown("#### Kart Ozeti")
-                show_cards = format_currency_columns(
-                    owner_cards,
-                    ["donem_borcu", "limit", "kullanilabilir_limit"],
-                )
-                st.dataframe(show_cards, use_container_width=True, hide_index=True)
-
-                st.markdown("#### Kalan Taksitler")
-                if owner_inst.empty:
-                    st.info("Taksit verisi bulunamadi.")
-                else:
-                    show_inst = format_currency_columns(
-                        owner_inst,
-                        ["Aylik Tutar", "Kalan Toplam Borc"],
-                    )
-                    st.dataframe(show_inst, use_container_width=True, hide_index=True)
-
-    if not errors_df.empty:
-        st.markdown("#### Hata Kayitlari")
-        st.dataframe(errors_df, use_container_width=True, hide_index=True)
-
+# ==========================================
+# 4. ANA İŞLEYİŞ VE GEMINI BAĞLANTISI
+# ==========================================
+if not api_key:
+    st.warning("👈 Lütfen sol menüden Gemini API Key'inizi girin.")
 else:
-    st.info("PDF dosyalarini yukleyip 'PDF'leri Analiz Et' butonuna basin.")
+    genai.configure(api_key=api_key)
+    # response_mime_type bizi JSON formatının dışına çıkmaktan kurtarıyor
+    model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+
+    if uploaded_files:
+        if st.button("🚀 Ekstreleri Analiz Et"):
+            all_data = []
+            
+            with st.spinner("Yapay Zeka PDF'leri okuyor, lütfen bekleyin..."):
+                for file in uploaded_files:
+                    try:
+                        # PDF'i belleğe alıp Gemini'ye blob olarak gönderiyoruz
+                        blob = {'mime_type': 'application/pdf', 'data': file.getvalue()}
+                        response = model.generate_content([PROMPT, blob])
+                        
+                        # JSON'ı parse et
+                        data = json.loads(response.text)
+                        all_data.append(data)
+                    except Exception as e:
+                        st.error(f"{file.name} işlenirken hata oluştu: {e}")
+
+            if all_data:
+                df_main = pd.DataFrame(all_data)
+                
+                # --- ÜST PANEL METRİKLERİ ---
+                total_debt = df_main['donem_borcu'].sum()
+                total_limit = df_main['limit'].sum()
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Toplam Dönem Borcu", f"{total_debt:,.2f} ₺")
+                col2.metric("Toplam Kart Limiti", f"{total_limit:,.2f} ₺")
+                col3.metric("Kalan Boş Limit", f"{(total_limit - total_debt):,.2f} ₺")
+                
+                st.divider()
+
+                # --- KULLANICI BAZLI KARTLAR ---
+                sahipler = df_main['kart_sahibi'].unique()
+                
+                for sahip in sahipler:
+                    st.subheader(f"👤 Kullanıcı: {sahip}")
+                    user_data = df_main[df_main['kart_sahibi'] == sahip]
+                    
+                    # Kullanıcının Kart Özeti
+                    st.dataframe(user_data[['banka', 'donem_borcu', 'limit']], use_container_width=True, hide_index=True)
+                    
+                    # Kullanıcının Taksit Hesaplamaları
+                    taksit_listesi = []
+                    for _, row in user_data.iterrows():
+                        for t in row.get('taksitler', []):
+                            kalan_taksit = parse_installment(t.get('taksit_no', '0/0'))
+                            aylik_tutar = float(t.get('tutar', 0))
+                            
+                            taksit_listesi.append({
+                                "Banka": row['banka'],
+                                "Harcama": t.get('aciklama', ''),
+                                "Durum": t.get('taksit_no', ''),
+                                "Kalan Ay": kalan_taksit,
+                                "Aylık Taksit (₺)": aylik_tutar,
+                                "Gelecek Toplam Borç (₺)": kalan_taksit * aylik_tutar
+                            })
+                    
+                    if taksit_listesi:
+                        st.write("📅 **Aktif Taksit Durumu**")
+                        df_taksit = pd.DataFrame(taksit_listesi)
+                        st.dataframe(df_taksit, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Bu kullanıcıya ait aktif taksit bulunamadı.")
+                    
+                    st.write("---")
